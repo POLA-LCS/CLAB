@@ -29,7 +29,8 @@ class Evaluation {
     std::unordered_map<String, Vector<String>> values;
     String aborter_id;
 
-public:
+    friend class CLAB;
+
     inline void set_found(const String& id, bool val) {
         toggles[id] = val;
     }
@@ -46,9 +47,15 @@ public:
         aborter_id = id;
     }
 
+public:
     inline bool state(const String& id) const {
-        auto it = toggles.find(id);
+        std::unordered_map<String, bool>::const_iterator it = toggles.find(id);
         return it != toggles.end() ? it->second : false;
+    }
+
+    inline bool captured(const String& id) const noexcept {
+        std::unordered_map<String, Vector<String>>::const_iterator it = values.find(id);
+        return it != values.end() && !it->second.empty();
     }
 
     inline bool aborted() const noexcept {
@@ -61,7 +68,7 @@ public:
 
     inline const Vector<String>& params(const String& id) const noexcept {
         static const Vector<String> empty;
-        auto it = values.find(id);
+        std::unordered_map<String, Vector<String>>::const_iterator it = values.find(id);
         return it != values.end() ? it->second : empty;
     }
 };
@@ -115,7 +122,7 @@ private:
     inline Shared<FlagData> find_match(const String& arg, bool& out_toggle) const {
         Vector<MatchCandidate> candidates;
         for(const Shared<FlagData>& flag : flags_vector) {
-            for(auto const& tag_pair : flag->tags) {
+            for(const std::pair<const String, TagInfo>& tag_pair : flag->tags) {
                 const String& tag = tag_pair.first;
                 const TagInfo& info = tag_pair.second;
                 candidates.push_back({
@@ -234,12 +241,17 @@ public:
 
         std::unordered_set<String> found_ids;
 
-        for(const auto& arg : args) {
+        for(const String& arg : args) {
             bool dummy_toggle;
-            auto flag = find_match(arg, dummy_toggle);
+            Shared<FlagData> flag = find_match(arg, dummy_toggle);
             if(flag && flag->is_abort) {
                 eval.set_abort(flag->id);
                 eval.set_found(flag->id, dummy_toggle);
+
+                if(flag->action_cb) {
+                    flag->action_cb("");
+                }
+
                 return eval;
             }
         }
@@ -285,7 +297,7 @@ public:
             }
         }
 
-        for(const auto& flag : flags_vector) {
+        for(const Shared<FlagData>& flag : flags_vector) {
             if(flag->is_required && found_ids.find(flag->id) == found_ids.end()) {
                 throw MissingArgument("Required flag '" + flag->id + "' missing.");
             }
