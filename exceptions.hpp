@@ -18,3 +18,8 @@ class InvalidBuilding : public std::runtime_error {
 public:
     explicit InvalidBuilding(const std::string& msg) : std::runtime_error(msg) {}
 };
+
+class InvalidValue : public std::runtime_error {
+public:
+    explicit InvalidValue(const std::string& msg) : std::runtime_error(msg) {}
+};

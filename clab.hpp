@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
+#include <initializer_list>
 #include "exceptions.hpp"
 
 /*------------------------------*\
@@ -103,6 +104,7 @@ public:
         bool is_multiple = false;
         bool is_abort = false;
         bool is_overwritable = false;
+        std::unordered_set<String> allowed_values;
     };
 
 private:
@@ -185,6 +187,12 @@ public:
             return *this;
         }
 
+        inline FlagConfigurator& consume(size_t n, std::initializer_list<String> allowed) {
+            data->consumed_args = n;
+            data->allowed_values = allowed;
+            return *this;
+        }
+
         inline FlagConfigurator& required() noexcept {
             data->is_required = true;
             return *this;
@@ -240,6 +248,7 @@ public:
         }
 
         std::unordered_set<String> found_ids;
+        size_t arg_idx = 0;
 
         for(const String& arg : args) {
             bool dummy_toggle;
@@ -247,29 +256,40 @@ public:
             if(flag && flag->is_abort) {
                 eval.set_abort(flag->id);
                 eval.set_found(flag->id, dummy_toggle);
-
-                if(flag->action_cb) {
-                    flag->action_cb("");
-                }
-
+                if(flag->action_cb) flag->action_cb("");
                 return eval;
             }
         }
 
-        for(size_t args_i = 0; args_i < args.size(); args_i++) {
+        while(arg_idx < args.size()) {
             bool toggle_val = true;
-            Shared<FlagData> matched_flag = find_match(args[args_i], toggle_val);
+            Shared<FlagData> matched_flag = find_match(args[arg_idx], toggle_val);
 
             if(matched_flag == nullptr) {
+                bool consumed = false;
                 for(const Shared<FlagData>& flag : flags_vector) {
-                    if(flag->tags.empty()) {
+                    if(flag->tags.empty() && found_ids.find(flag->id) == found_ids.end()) {
                         found_ids.insert(flag->id);
-                        if(flag->action_cb) {
-                            flag->action_cb(args[args_i]);
+                        eval.set_found(flag->id, true);
+
+                        for(size_t i = 0; i < flag->consumed_args; ++i) {
+                            if(arg_idx >= args.size()) {
+                                throw MissingArgument("Positional '" + flag->id + "' missing args.");
+                            }
+
+                            String val = args[arg_idx++];
+                            if(!flag->allowed_values.empty() && flag->allowed_values.find(val) == flag->allowed_values.end()) {
+                                throw InvalidValue("Value '" + val + "' not allowed for '" + flag->id + "'.");
+                            }
+
+                            if(flag->action_cb) flag->action_cb(val);
+                            eval.add_value(flag->id, val);
                         }
-                        eval.add_value(flag->id, args[args_i]);
+                        consumed = true;
+                        break;
                     }
                 }
+                if(!consumed) arg_idx++;
                 continue;
             }
 
@@ -277,29 +297,30 @@ public:
                 throw std::runtime_error("Flag '" + matched_flag->id + "' is not multiple.");
             }
 
-            if(matched_flag->is_overwritable) {
-                eval.clear_values(matched_flag->id);
-            }
+            if(matched_flag->is_overwritable) eval.clear_values(matched_flag->id);
 
             found_ids.insert(matched_flag->id);
             eval.set_found(matched_flag->id, toggle_val);
+            arg_idx++;
 
             for(size_t i = 0; i < matched_flag->consumed_args; ++i) {
-                if((args_i + 1) >= args.size()) {
+                if(arg_idx >= args.size()) {
                     throw MissingArgument("Flag '" + matched_flag->id + "' missing args.");
                 }
 
-                String val = args[++args_i];
-                if(matched_flag->action_cb) {
-                    matched_flag->action_cb(val);
+                String val = args[arg_idx++];
+                if(!matched_flag->allowed_values.empty() && matched_flag->allowed_values.find(val) == matched_flag->allowed_values.end()) {
+                    throw std::runtime_error("Value '" + val + "' not allowed for '" + matched_flag->id + "'.");
                 }
+
+                if(matched_flag->action_cb) matched_flag->action_cb(val);
                 eval.add_value(matched_flag->id, val);
             }
         }
 
         for(const Shared<FlagData>& flag : flags_vector) {
             if(flag->is_required && found_ids.find(flag->id) == found_ids.end()) {
-                throw MissingArgument("Required flag '" + flag->id + "' missing.");
+                throw MissingArgument("Required flag/positional '" + flag->id + "' missing.");
             }
         }
 
