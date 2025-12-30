@@ -1,3 +1,9 @@
+/*------------------------------*\
+| This exceptions header file    |
+| for the library CLAB           |
+| Command Line Arguments Builder |
+\*------------------------------*/
+
 #pragma once
 
 #include <stdexcept>
