@@ -47,4 +47,44 @@ namespace clab {
         explicit InvalidValue(const String& msg) : std::runtime_error(msg) {}
     };
 
+    /*------------------------------*\
+    | UnexpectedArgument:            |
+    | Thrown when more arguments are |
+    | provided than expected.        |
+    \*------------------------------*/
+    class UnexpectedArgument : public std::runtime_error {
+    public:
+        explicit UnexpectedArgument(const String& msg) : std::runtime_error(msg) {}
+    };
+
+    /*--------------------------*\
+    | RedundantArgument:         |
+    | Thrown when a non-multiple |
+    | flag is provided twice.    |
+    \*--------------------------*/
+    class RedundantArgument : public std::runtime_error {
+    public:
+        explicit RedundantArgument(const String& msg) : std::runtime_error(msg) {}
+    };
+
+    /*--------------------------------*\
+    | TokenMismatch:                   |
+    | Thrown when a flag prefix is     |
+    | found where a value was expected |
+    \*--------------------------------*/
+    class TokenMismatch : public std::runtime_error {
+    public:
+        explicit TokenMismatch(const String& msg) : std::runtime_error(msg) {}
+    };
+
+    /*--------------------------------*\
+    | MissingValue:                    |
+    | Thrown when a flag or positional |
+    | expects a value but none is      |
+    | provided.                        |
+    \*--------------------------------*/
+    class MissingValue : public std::runtime_error {
+    public:
+        explicit MissingValue(const String& msg) : std::runtime_error(msg) {}
+    };
 } // namespace clab

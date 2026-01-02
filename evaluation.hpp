@@ -3,8 +3,8 @@
 |                                                                 |
 | File: evaluation.hpp                                            |
 | Description:                                                    |
-|     Header file for the Evaluation class, responsible for       |
-|     storing and querying the results of the parsing process.    |
+|     Result container for the parsing process. Stores states     |
+|     and parameters for each flag/positional.                    |
 |                                                                 |
 | Minimum Standard: ISO C++17                                     |
 | License: MIT (c) 2025                                           |
@@ -17,56 +17,72 @@
 
 namespace clab {
 
-    /*------------------------------*\
-    | Evaluation class to store      |
-    | the results of the parsing     |
-    \*------------------------------*/
     class Evaluation {
-        std::unordered_map<String, bool> toggles;
-        std::unordered_map<String, Vector<String>> values;
-        String aborter_id;
+    private:
+        std::unordered_map<String, bool> _states;
+        std::unordered_map<String, Vector<String>> _params;
+        String _abort_id;
 
-        friend class CLAB;
+    public:
+        inline void set_found(const String& id, bool v) {
+            _states[id] = v;
+        }
 
-        inline void set_found(const String& id, bool val) {
-            toggles[id] = val;
+        inline void add_value(const String& id, const String& v) {
+            _params[id].push_back(v);
         }
 
         inline void clear_values(const String& id) {
-            values[id].clear();
-        }
-
-        inline void add_value(const String& id, String val) {
-            values[id].push_back(std::move(val));
+            _params[id].clear();
         }
 
         inline void set_abort(const String& id) {
-            aborter_id = id;
+            _abort_id = id;
         }
 
-    public:
         inline bool state(const String& id) const {
-            std::unordered_map<String, bool>::const_iterator it = toggles.find(id);
-            return it != toggles.end() ? it->second : false;
+            std::unordered_map<String, bool>::const_iterator it = _states.find(id);
+
+            if(it == _states.end()) {
+                return false;
+            }
+
+            return it->second;
         }
 
-        inline bool captured(const String& id) const noexcept {
-            std::unordered_map<String, Vector<String>>::const_iterator it = values.find(id);
-            return it != values.end() && !it->second.empty();
+        inline const Vector<String>& params(const String& id) const {
+            static const Vector<String> empty_vec;
+            std::unordered_map<String, Vector<String>>::const_iterator it = _params.find(id);
+
+            if(it == _params.end()) {
+                return empty_vec;
+            }
+
+            return it->second;
         }
 
-        inline bool aborted() const noexcept {
-            return !aborter_id.empty();
+        inline String value(const String& id) const {
+            std::unordered_map<String, Vector<String>>::const_iterator it = _params.find(id);
+
+            if(it == _params.end()) {
+                return "";
+            }
+
+            const Vector<String>& vec = it->second;
+
+            if(vec.empty()) {
+                return "";
+            }
+
+            return vec.back();
         }
 
-        inline const String& aborted_by() const noexcept {
-            return aborter_id;
+        inline bool aborted() const {
+            return !_abort_id.empty();
         }
 
-        inline const Vector<String>& params(const String& id) const noexcept {
-            static const Vector<String> empty;
-            std::unordered_map<String, Vector<String>>::const_iterator it = values.find(id);
-            return it != values.end() ? it->second : empty;
+        inline std::string aborted_by() const {
+            return _abort_id;
         }
     };
 
