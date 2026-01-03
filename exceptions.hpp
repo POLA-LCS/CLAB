@@ -27,11 +27,11 @@ namespace clab {
         explicit MissingArgument(const String& msg) : std::runtime_error(msg) {}
     };
 
-    /*------------------------------*\
-    | InvalidBuilding:               |
-    | Thrown when the CLAB config    |
-    | has logical inconsistencies.   |
-    \*------------------------------*/
+    /*----------------------------*\
+    | InvalidBuilding:             |
+    | Thrown when the CLAB config  |
+    | has logical inconsistencies. |
+    \*----------------------------*/
     class InvalidBuilding : public std::runtime_error {
     public:
         explicit InvalidBuilding(const String& msg) : std::runtime_error(msg) {}

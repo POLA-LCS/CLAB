@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <initializer_list>
+#include <memory>
 #include "types.hpp"
 #include "exceptions.hpp"
 #include "evaluation.hpp"
@@ -25,7 +26,7 @@ namespace clab {
 
     class CLAB {
     public:
-        using Action = std::function<void(String)>;
+        using Action = std::function<void(const String&)>;
 
         struct TagInfo {
             String prefix;
@@ -33,17 +34,17 @@ namespace clab {
         };
 
         struct FlagData {
-            String id;
             std::unordered_map<String, TagInfo> tags;
-            size_t consumed_args = 0;
+            std::unordered_set<String> allowed_values;
+            Vector<String> default_values;
+            String id;
             Action action_cb;
+            size_t consumed_args = 0;
             bool is_required = false;
             bool is_multiple = false;
             bool is_abort = false;
             bool is_overwritable = false;
-            std::unordered_set<String> allowed_values;
             bool default_toggle = false;
-            Vector<String> default_values;
         };
 
     private:
@@ -55,28 +56,125 @@ namespace clab {
             bool toggle;
         };
 
+        inline void initialize_defaults(Evaluation& out_eval) const {
+            for(const Shared<FlagData>& flag : flags_vector) {
+                out_eval.set_found(flag->id, flag->default_toggle);
+                for(const String& val : flag->default_values)
+                    out_eval.add_value(flag->id, val);
+            }
+        }
+
+        inline bool check_for_abort(const Vector<String>& args, Evaluation& out_eval) const {
+            for(const String& arg : args) {
+                bool dummy = false;
+                Shared<FlagData> flag = find_match(arg, dummy);
+
+                if(!flag || !flag->is_abort)
+                    continue;
+
+                out_eval.set_abort(flag->id);
+                out_eval.set_found(flag->id, dummy);
+
+                if(flag->action_cb)
+                    flag->action_cb("");
+
+                return true;
+            }
+            return false;
+        }
+
+        inline void validate_and_store(Shared<FlagData> flag, const String& val, Evaluation& eval) const {
+            if(!flag->allowed_values.empty() && flag->allowed_values.find(val) == flag->allowed_values.end())
+                throw InvalidValue(val);
+
+            eval.add_value(flag->id, val);
+            if(flag->action_cb)
+                flag->action_cb(val);
+        }
+
+        inline void handle_tagged_token(Shared<FlagData> flag, bool toggle, const Vector<String>& args,
+            size_t& idx, Evaluation& eval, std::unordered_set<String>& ids) const {
+            bool already_seen = ids.find(flag->id) != ids.end();
+            if(already_seen && !flag->is_multiple)
+                throw RedundantArgument(flag->id);
+
+            if(!already_seen && flag->consumed_args > 0)
+                eval.clear_values(flag->id);
+
+            ids.insert(flag->id);
+            eval.set_found(flag->id, toggle);
+            idx++;
+
+            for(size_t i = 0; i < flag->consumed_args; ++i) {
+                if(idx >= args.size())
+                    throw MissingValue(flag->id);
+
+                String val = args[idx++];
+                bool d = false;
+                if(find_match(val, d))
+                    throw TokenMismatch(val);
+
+                validate_and_store(flag, val, eval);
+            }
+        }
+
+        inline bool handle_positional_token(const Vector<String>& args, size_t& idx,
+            Evaluation& eval, std::unordered_set<String>& ids) const {
+            for(const Shared<FlagData>& flag : flags_vector) {
+                if(!flag->tags.empty())
+                    continue;
+
+                bool is_first = ids.find(flag->id) == ids.end();
+                if(!is_first && !flag->is_multiple)
+                    continue;
+
+                if(is_first && (flag->is_multiple || flag->consumed_args > 0))
+                    eval.clear_values(flag->id);
+
+                ids.insert(flag->id);
+                eval.set_found(flag->id, true);
+
+                if(flag->is_multiple) {
+                    while(idx < args.size()) {
+                        bool d = false;
+                        if(find_match(args[idx], d))
+                            break;
+                        validate_and_store(flag, args[idx++], eval);
+                    }
+                } else {
+                    for(size_t i = 0; i < flag->consumed_args; ++i) {
+                        if(idx >= args.size())
+                            throw MissingValue(flag->id);
+                        validate_and_store(flag, args[idx++], eval);
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        inline void verify_required_flags(const std::unordered_set<String>& provided_ids) const {
+            for(const Shared<FlagData>& flag : flags_vector) {
+                if(flag->is_required && provided_ids.find(flag->id) == provided_ids.end())
+                    throw MissingArgument(flag->id);
+            }
+        }
+
         inline Shared<FlagData> find_match(const String& arg, bool& out_toggle) const {
             Vector<MatchCandidate> candidates;
-            Vector<Shared<FlagData>>::const_iterator flag_it;
-            for(flag_it = flags_vector.begin(); flag_it != flags_vector.end(); ++flag_it) {
-                const Shared<FlagData>& flag = *flag_it;
-                std::unordered_map<String, TagInfo>::const_iterator tag_it;
-                for(tag_it = flag->tags.begin(); tag_it != flag->tags.end(); ++tag_it) {
-                    const TagInfo& info = tag_it->second;
-                    candidates.push_back({ flag, info.prefix + tag_it->first, info.toggle_val });
+            for(const Shared<FlagData>& flag : flags_vector) {
+                for(const std::pair<const String, TagInfo>& pair : flag->tags) {
+                    candidates.push_back({ flag, pair.second.prefix + pair.first, pair.second.toggle_val });
                 }
             }
-
-            std::sort(candidates.begin(), candidates.end(),
-                [](const MatchCandidate& a, const MatchCandidate& b) noexcept {
+            std::sort(candidates.begin(), candidates.end(), [](const MatchCandidate& a, const MatchCandidate& b) noexcept {
                 return a.full_tag.length() > b.full_tag.length();
             });
-
-            Vector<MatchCandidate>::const_iterator cand_it;
-            for(cand_it = candidates.begin(); cand_it != candidates.end(); ++cand_it) {
-                if(arg != cand_it->full_tag) continue;
-                out_toggle = cand_it->toggle;
-                return cand_it->flag;
+            for(const MatchCandidate& cand : candidates) {
+                if(arg != cand.full_tag)
+                    continue;
+                out_toggle = cand.toggle;
+                return cand.flag;
             }
             return nullptr;
         }
@@ -127,7 +225,8 @@ namespace clab {
 
             inline FlagConfigurator& consume(size_t n, std::initializer_list<String> allowed) {
                 data->consumed_args = n;
-                for(const String& s : allowed) data->allowed_values.insert(s);
+                for(const String& s : allowed)
+                    data->allowed_values.insert(s);
                 return *this;
             }
 
@@ -153,9 +252,8 @@ namespace clab {
             }
 
             inline CLAB& end() {
-                if(data->tags.empty() && data->is_multiple && data->consumed_args > 0) {
+                if(data->tags.empty() && data->is_multiple && data->consumed_args > 0)
                     throw InvalidBuilding("Positional argument '" + data->id + "' cannot have both .consume() and .multiple().");
-                }
                 return parent;
             }
         };
@@ -169,7 +267,8 @@ namespace clab {
 
         inline Evaluation evaluate(int argc, char* argv[]) const {
             Vector<String> args;
-            for(int i = 0; i < argc; ++i) args.push_back(String(argv[i]));
+            for(int i = 0; i < argc; ++i)
+                args.push_back(String(argv[i]));
             return evaluate(args);
         }
 
@@ -178,111 +277,23 @@ namespace clab {
             std::unordered_set<String> user_provided_ids;
             size_t arg_idx = 0;
 
-            Vector<Shared<FlagData>>::const_iterator init_it;
-            for(init_it = flags_vector.begin(); init_it != flags_vector.end(); ++init_it) {
-                const Shared<FlagData>& flag = *init_it;
-                eval.set_found(flag->id, flag->default_toggle);
-                Vector<String>::const_iterator val_it;
-                for(val_it = flag->default_values.begin(); val_it != flag->default_values.end(); ++val_it) {
-                    eval.add_value(flag->id, *val_it);
-                }
-            }
+            initialize_defaults(eval);
 
-            Vector<String>::const_iterator pre_it;
-            for(pre_it = args.begin(); pre_it != args.end(); ++pre_it) {
-                bool dummy;
-                Shared<FlagData> flag = find_match(*pre_it, dummy);
-                if(!flag || !flag->is_abort) continue;
-                eval.set_abort(flag->id);
-                eval.set_found(flag->id, dummy);
-                if(flag->action_cb) flag->action_cb("");
+            if(check_for_abort(args, eval))
                 return eval;
-            }
 
             while(arg_idx < args.size()) {
-                const String& current_token = args[arg_idx];
                 bool toggle_val = true;
-                Shared<FlagData> matched_flag = find_match(current_token, toggle_val);
+                Shared<FlagData> matched_flag = find_match(args[arg_idx], toggle_val);
 
-                if(!matched_flag) {
-                    bool consumed = false;
-                    Vector<Shared<FlagData>>::const_iterator pos_it;
-                    for(pos_it = flags_vector.begin(); pos_it != flags_vector.end(); ++pos_it) {
-                        const Shared<FlagData>& flag = *pos_it;
-                        bool is_first_time = user_provided_ids.find(flag->id) == user_provided_ids.end();
-                        if(!flag->tags.empty()) continue;
-                        if(!is_first_time && !flag->is_multiple) continue;
-
-                        if(is_first_time && (flag->is_multiple || flag->consumed_args > 0)) {
-                            eval.clear_values(flag->id);
-                        }
-
-                        user_provided_ids.insert(flag->id);
-                        eval.set_found(flag->id, true);
-
-                        if(flag->is_multiple) {
-                            while(arg_idx < args.size()) {
-                                bool d;
-                                if(find_match(args[arg_idx], d)) break;
-                                String val = args[arg_idx++];
-                                if(!flag->allowed_values.empty() && flag->allowed_values.find(val) == flag->allowed_values.end())
-                                    throw InvalidValue(val);
-                                eval.add_value(flag->id, val);
-                                if(flag->action_cb) flag->action_cb(val);
-                            }
-                        } else {
-                            for(size_t i = 0; i < flag->consumed_args; ++i) {
-                                if(arg_idx >= args.size())
-                                    throw MissingValue(flag->id);
-                                String val = args[arg_idx++];
-                                if(!flag->allowed_values.empty() && flag->allowed_values.find(val) == flag->allowed_values.end())
-                                    throw InvalidValue(val);
-                                eval.add_value(flag->id, val);
-                                if(flag->action_cb) flag->action_cb(val);
-                            }
-                        }
-                        consumed = true; break;
-                    }
-                    if(!consumed)
-                        throw UnexpectedArgument(current_token);
-                    continue;
-                }
-
-                bool already_seen = user_provided_ids.find(matched_flag->id) != user_provided_ids.end();
-                if(already_seen && !matched_flag->is_multiple)
-                    throw RedundantArgument(matched_flag->id);
-
-                if(!already_seen && matched_flag->consumed_args > 0) {
-                    eval.clear_values(matched_flag->id);
-                }
-
-                user_provided_ids.insert(matched_flag->id);
-                eval.set_found(matched_flag->id, toggle_val);
-                arg_idx++;
-
-                for(size_t i = 0; i < matched_flag->consumed_args; ++i) {
-                    if(arg_idx >= args.size())
-                        throw MissingValue(matched_flag->id);
-
-                    String val = args[arg_idx++];
-                    bool d;
-                    if(find_match(val, d))
-                        throw TokenMismatch(val);
-                        
-                    if(!matched_flag->allowed_values.empty() && matched_flag->allowed_values.find(val) == matched_flag->allowed_values.end())
-                        throw InvalidValue(val);
-                        
-                    eval.add_value(matched_flag->id, val);
-                    if(matched_flag->action_cb) matched_flag->action_cb(val);
+                if(matched_flag) {
+                    handle_tagged_token(matched_flag, toggle_val, args, arg_idx, eval, user_provided_ids);
+                } else if(!handle_positional_token(args, arg_idx, eval, user_provided_ids)) {
+                    throw UnexpectedArgument(args[arg_idx]);
                 }
             }
 
-            Vector<Shared<FlagData>>::const_iterator req_it;
-            for(req_it = flags_vector.begin(); req_it != flags_vector.end(); ++req_it) {
-                const Shared<FlagData>& flag = *req_it;
-                if(flag->is_required && user_provided_ids.find(flag->id) == user_provided_ids.end())
-                    throw MissingArgument(flag->id);
-            }
+            verify_required_flags(user_provided_ids);
             return eval;
         }
     };
