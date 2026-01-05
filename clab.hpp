@@ -98,7 +98,7 @@ namespace clab {
             if(already_seen && !flag->is_multiple)
                 throw RedundantArgument(flag->id);
 
-            if(!already_seen && flag->consumed_args > 0)
+            if(!already_seen && flag->consumed_args > 0 && !flag->is_overwritable)
                 eval.clear_values(flag->id);
 
             ids.insert(flag->id);
@@ -181,6 +181,12 @@ namespace clab {
 
     public:
         CLAB() = default;
+        /*
+        ** @brief Loads `start(path_id).required().consume(1)`
+        */
+        CLAB(const std::string& path_id) {
+            this->start(path_id).required().consume(1).end();
+        }
         ~CLAB() = default;
 
         struct FlagConfigurator {
@@ -258,7 +264,7 @@ namespace clab {
             }
         };
 
-        inline FlagConfigurator start(String id) {
+        inline FlagConfigurator start(String id = "") {
             Shared<FlagData> flag = std::make_shared<FlagData>();
             flag->id = id;
             flags_vector.push_back(flag);
