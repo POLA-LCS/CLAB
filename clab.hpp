@@ -18,9 +18,9 @@
 #include <algorithm>
 #include <initializer_list>
 #include <memory>
-#include "types.hpp"
-#include "exceptions.hpp"
-#include "evaluation.hpp"
+#include "details/types.hpp"
+#include "details/exceptions.hpp"
+#include "details/evaluation.hpp"
 
 namespace clab {
 
