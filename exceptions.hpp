@@ -18,13 +18,22 @@
 namespace clab {
 
     /*------------------------------*\
+    | Base Exception                 |
+    | Common base for all CLAB errs  |
+    \*------------------------------*/
+    class Exception : public std::runtime_error {
+    public:
+        explicit Exception(const String& msg) : std::runtime_error(msg) {}
+    };
+
+    /*------------------------------*\
     | MissingArgument:               |
     | Thrown when a required flag or |
     | positional is not provided.    |
     \*------------------------------*/
-    class MissingArgument : public std::runtime_error {
+    class MissingArgument : public Exception {
     public:
-        explicit MissingArgument(const String& msg) : std::runtime_error(msg) {}
+        explicit MissingArgument(const String& msg) : Exception(msg) {}
     };
 
     /*----------------------------*\
@@ -32,9 +41,9 @@ namespace clab {
     | Thrown when the CLAB config  |
     | has logical inconsistencies. |
     \*----------------------------*/
-    class InvalidBuilding : public std::runtime_error {
+    class InvalidBuilding : public Exception {
     public:
-        explicit InvalidBuilding(const String& msg) : std::runtime_error(msg) {}
+        explicit InvalidBuilding(const String& msg) : Exception(msg) {}
     };
 
     /*------------------------------*\
@@ -42,9 +51,9 @@ namespace clab {
     | Thrown when a provided value   |
     | is not in the allowed list.    |
     \*------------------------------*/
-    class InvalidValue : public std::runtime_error {
+    class InvalidValue : public Exception {
     public:
-        explicit InvalidValue(const String& msg) : std::runtime_error(msg) {}
+        explicit InvalidValue(const String& msg) : Exception(msg) {}
     };
 
     /*------------------------------*\
@@ -52,9 +61,9 @@ namespace clab {
     | Thrown when more arguments are |
     | provided than expected.        |
     \*------------------------------*/
-    class UnexpectedArgument : public std::runtime_error {
+    class UnexpectedArgument : public Exception {
     public:
-        explicit UnexpectedArgument(const String& msg) : std::runtime_error(msg) {}
+        explicit UnexpectedArgument(const String& msg) : Exception(msg) {}
     };
 
     /*--------------------------*\
@@ -62,9 +71,9 @@ namespace clab {
     | Thrown when a non-multiple |
     | flag is provided twice.    |
     \*--------------------------*/
-    class RedundantArgument : public std::runtime_error {
+    class RedundantArgument : public Exception {
     public:
-        explicit RedundantArgument(const String& msg) : std::runtime_error(msg) {}
+        explicit RedundantArgument(const String& msg) : Exception(msg) {}
     };
 
     /*--------------------------------*\
@@ -72,9 +81,9 @@ namespace clab {
     | Thrown when a flag prefix is     |
     | found where a value was expected |
     \*--------------------------------*/
-    class TokenMismatch : public std::runtime_error {
+    class TokenMismatch : public Exception {
     public:
-        explicit TokenMismatch(const String& msg) : std::runtime_error(msg) {}
+        explicit TokenMismatch(const String& msg) : Exception(msg) {}
     };
 
     /*--------------------------------*\
@@ -83,8 +92,8 @@ namespace clab {
     | expects a value but none is      |
     | provided.                        |
     \*--------------------------------*/
-    class MissingValue : public std::runtime_error {
+    class MissingValue : public Exception {
     public:
-        explicit MissingValue(const String& msg) : std::runtime_error(msg) {}
+        explicit MissingValue(const String& msg) : Exception(msg) {}
     };
 } // namespace clab
