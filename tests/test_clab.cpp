@@ -20,16 +20,16 @@ TEST_CASE("Single tagged flag with value") {
     cli.start("output")
         .flag("o").flag("output", "--")
         .consume(1)
-    .end();
+        .end();
 
     SUBCASE("-o path") {
-        auto eval = cli.evaluate(args({"-o", "build/"}));
+        auto eval = cli.evaluate(args({ "-o", "build/" }));
         CHECK(eval.state("output") == true);
         CHECK(eval.value("output") == "build/");
     }
 
     SUBCASE("--output path") {
-        auto eval = cli.evaluate(args({"--output", "dist/"}));
+        auto eval = cli.evaluate(args({ "--output", "dist/" }));
         CHECK(eval.state("output") == true);
         CHECK(eval.value("output") == "dist/");
     }
@@ -39,9 +39,9 @@ TEST_CASE("Flag without value (boolean toggle)") {
     CLAB cli;
     cli.start("verbose")
         .flag("v").flag("verbose", "--")
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-v"}));
+    auto eval = cli.evaluate(args({ "-v" }));
     CHECK(eval.state("verbose") == true);
 }
 
@@ -49,7 +49,7 @@ TEST_CASE("Unknown flag is not set") {
     CLAB cli;
     cli.start("verbose")
         .flag("v")
-    .end();
+        .end();
 
     auto eval = cli.evaluate(args({}));
     CHECK(eval.state("verbose") == false);
@@ -64,7 +64,7 @@ TEST_CASE("Required flag missing throws MissingArgument") {
     cli.start("input")
         .flag("i")
         .consume(1).required()
-    .end();
+        .end();
 
     CHECK_THROWS_AS(cli.evaluate(args({})), MissingArgument);
 }
@@ -74,9 +74,9 @@ TEST_CASE("Required flag present does not throw") {
     cli.start("input")
         .flag("i")
         .consume(1).required()
-    .end();
+        .end();
 
-    CHECK_NOTHROW(cli.evaluate(args({"-i", "file.txt"})));
+    CHECK_NOTHROW(cli.evaluate(args({ "-i", "file.txt" })));
 }
 
 // ===========================================================================
@@ -92,7 +92,7 @@ TEST_CASE("Default value is used when flag is absent") {
         .flag("m")
         .consume(1)
         .initial(String("release"))
-    .end();
+        .end();
 
     auto eval = cli.evaluate(args({}));
     CHECK(eval.value("mode") == "release");
@@ -104,9 +104,9 @@ TEST_CASE("Default value is overridden when flag is provided") {
         .flag("m")
         .consume(1)
         .initial(String("release"))
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-m", "debug"}));
+    auto eval = cli.evaluate(args({ "-m", "debug" }));
     CHECK(eval.value("mode") == "debug");
 }
 
@@ -115,7 +115,7 @@ TEST_CASE("Default toggle state") {
     cli.start("opt")
         .flag("o")
         .initial(true)
-    .end();
+        .end();
 
     auto eval = cli.evaluate(args({}));
     CHECK(eval.state("opt") == true);
@@ -130,13 +130,13 @@ TEST_CASE("Abort flag stops parsing early") {
     cli.start("input")
         .flag("i")
         .consume(1).required()
-    .end();
+        .end();
     cli.start("help")
         .flag("h").flag("help", "--")
         .abort()
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-h"}));
+    auto eval = cli.evaluate(args({ "-h" }));
     CHECK(eval.aborted() == true);
     CHECK(eval.aborted_id() == "help");
     // Required "input" is NOT enforced when abort fires
@@ -149,9 +149,9 @@ TEST_CASE("Abort flag triggers action callback") {
         .flag("h")
         .abort()
         .action([&](const String&) { called = true; })
-    .end();
+        .end();
 
-    cli.evaluate(args({"-h"}));
+    cli.evaluate(args({ "-h" }));
     CHECK(called == true);
 }
 
@@ -163,10 +163,10 @@ TEST_CASE("Allowed values accepted") {
     CLAB cli;
     cli.start("level")
         .flag("l")
-        .consume(1, {"debug", "info", "warn", "error"})
-    .end();
+        .consume(1, { "debug", "info", "warn", "error" })
+        .end();
 
-    auto eval = cli.evaluate(args({"-l", "info"}));
+    auto eval = cli.evaluate(args({ "-l", "info" }));
     CHECK(eval.value("level") == "info");
 }
 
@@ -174,10 +174,10 @@ TEST_CASE("Disallowed value throws InvalidValue") {
     CLAB cli;
     cli.start("level")
         .flag("l")
-        .consume(1, {"debug", "info", "warn", "error"})
-    .end();
+        .consume(1, { "debug", "info", "warn", "error" })
+        .end();
 
-    CHECK_THROWS_AS(cli.evaluate(args({"-l", "trace"})), InvalidValue);
+    CHECK_THROWS_AS(cli.evaluate(args({ "-l", "trace" })), InvalidValue);
 }
 
 // ===========================================================================
@@ -189,9 +189,9 @@ TEST_CASE("Multiple flag collects all values") {
     cli.start("include")
         .flag("I")
         .consume(1).multiple()
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-I", "src/", "-I", "lib/"}));
+    auto eval = cli.evaluate(args({ "-I", "src/", "-I", "lib/" }));
     CHECK(eval.list("include").size() == 2);
     CHECK(eval.list("include")[0] == "src/");
     CHECK(eval.list("include")[1] == "lib/");
@@ -202,9 +202,9 @@ TEST_CASE("Duplicate non-multiple flag throws RedundantArgument") {
     cli.start("output")
         .flag("o")
         .consume(1)
-    .end();
+        .end();
 
-    CHECK_THROWS_AS(cli.evaluate(args({"-o", "a", "-o", "b"})), RedundantArgument);
+    CHECK_THROWS_AS(cli.evaluate(args({ "-o", "a", "-o", "b" })), RedundantArgument);
 }
 
 // ===========================================================================
@@ -215,9 +215,9 @@ TEST_CASE("Positional argument captures value") {
     CLAB cli;
     cli.start("file")
         .consume(1)
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"hello.txt"}));
+    auto eval = cli.evaluate(args({ "hello.txt" }));
     CHECK(eval.state("file") == true);
     CHECK(eval.value("file") == "hello.txt");
 }
@@ -226,9 +226,9 @@ TEST_CASE("Positional multiple captures remaining args") {
     CLAB cli;
     cli.start("files")
         .multiple()
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"a.txt", "b.txt", "c.txt"}));
+    auto eval = cli.evaluate(args({ "a.txt", "b.txt", "c.txt" }));
     CHECK(eval.list("files").size() == 3);
 }
 
@@ -243,9 +243,9 @@ TEST_CASE("Action callback is invoked with parsed value") {
         .flag("n")
         .consume(1)
         .action([&](const String& v) { captured = v; })
-    .end();
+        .end();
 
-    cli.evaluate(args({"-n", "pola"}));
+    cli.evaluate(args({ "-n", "pola" }));
     CHECK(captured == "pola");
 }
 
@@ -258,15 +258,15 @@ TEST_CASE("Toggle with explicit true/false tags") {
     cli.start("color")
         .toggle(true, "color", "--")
         .toggle(false, "no-color", "--")
-    .end();
+        .end();
 
     SUBCASE("--color sets true") {
-        auto eval = cli.evaluate(args({"--color"}));
+        auto eval = cli.evaluate(args({ "--color" }));
         CHECK(eval.state("color") == true);
     }
 
     SUBCASE("--no-color sets false") {
-        auto eval = cli.evaluate(args({"--no-color"}));
+        auto eval = cli.evaluate(args({ "--no-color" }));
         CHECK(eval.state("color") == false);
     }
 }
@@ -279,9 +279,9 @@ TEST_CASE("Custom prefix works") {
     CLAB cli;
     cli.start("help")
         .flag("help", "/")
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"/help"}));
+    auto eval = cli.evaluate(args({ "/help" }));
     CHECK(eval.state("help") == true);
 }
 
@@ -293,9 +293,9 @@ TEST_CASE("Unexpected argument throws") {
     CLAB cli;
     cli.start("known")
         .flag("k")
-    .end();
+        .end();
 
-    CHECK_THROWS_AS(cli.evaluate(args({"unknown"})), UnexpectedArgument);
+    CHECK_THROWS_AS(cli.evaluate(args({ "unknown" })), UnexpectedArgument);
 }
 
 TEST_CASE("Missing consumed value throws MissingValue") {
@@ -303,9 +303,9 @@ TEST_CASE("Missing consumed value throws MissingValue") {
     cli.start("output")
         .flag("o")
         .consume(1)
-    .end();
+        .end();
 
-    CHECK_THROWS_AS(cli.evaluate(args({"-o"})), MissingValue);
+    CHECK_THROWS_AS(cli.evaluate(args({ "-o" })), MissingValue);
 }
 
 TEST_CASE("Flag where value expected throws TokenMismatch") {
@@ -313,12 +313,12 @@ TEST_CASE("Flag where value expected throws TokenMismatch") {
     cli.start("output")
         .flag("o")
         .consume(1)
-    .end();
+        .end();
     cli.start("verbose")
         .flag("v")
-    .end();
+        .end();
 
-    CHECK_THROWS_AS(cli.evaluate(args({"-o", "-v"})), TokenMismatch);
+    CHECK_THROWS_AS(cli.evaluate(args({ "-o", "-v" })), TokenMismatch);
 }
 
 // ===========================================================================
@@ -329,7 +329,7 @@ TEST_CASE("Positional with consume + multiple throws InvalidBuilding") {
     CLAB cli;
     CHECK_THROWS_AS(
         cli.start("bad")
-            .consume(2).multiple()
+        .consume(2).multiple()
         .end(),
         InvalidBuilding
     );
@@ -342,7 +342,7 @@ TEST_CASE("Positional with consume + multiple throws InvalidBuilding") {
 TEST_CASE("CLAB(path_id) shorthand creates required consume(1)") {
     CLAB cli("path");
 
-    auto eval = cli.evaluate(args({"myfile.txt"}));
+    auto eval = cli.evaluate(args({ "myfile.txt" }));
     CHECK(eval.value("path") == "myfile.txt");
 
     CLAB cli2("path");
@@ -358,9 +358,9 @@ TEST_CASE("Over mode allows re-specifying and keeps last value") {
     cli.start("output")
         .flag("o")
         .consume(1).over()
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-o", "first", "-o", "second"}));
+    auto eval = cli.evaluate(args({ "-o", "first", "-o", "second" }));
     CHECK(eval.value("output") == "second");
 }
 
@@ -372,12 +372,12 @@ TEST_CASE("Tagged and positional arguments together") {
     CLAB cli;
     cli.start("verbose")
         .flag("v")
-    .end();
+        .end();
     cli.start("file")
         .consume(1)
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-v", "main.cpp"}));
+    auto eval = cli.evaluate(args({ "-v", "main.cpp" }));
     CHECK(eval.state("verbose") == true);
     CHECK(eval.value("file") == "main.cpp");
 }
@@ -390,7 +390,7 @@ TEST_CASE("Empty args with no required flags succeeds") {
     CLAB cli;
     cli.start("opt")
         .flag("o")
-    .end();
+        .end();
 
     auto eval = cli.evaluate(args({}));
     CHECK(eval.state("opt") == false);
@@ -421,9 +421,9 @@ TEST_CASE("handle() returns valid shared_ptr for known id") {
     CLAB cli;
     cli.start("flag")
         .flag("f")
-    .end();
+        .end();
 
-    auto eval = cli.evaluate(args({"-f"}));
+    auto eval = cli.evaluate(args({ "-f" }));
     auto h = eval.handle("flag");
     REQUIRE(h != nullptr);
     CHECK(h->state == true);

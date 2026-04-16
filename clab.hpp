@@ -62,7 +62,6 @@ namespace clab {
                 out_eval.set_state(flag->id, flag->default_toggle);
                 for(const String& val : flag->default_params) {
                     out_eval.add_param(flag->id, val);
-                    std::printf("[DEBUG] %s\n", val.c_str());
                 }
             }
         }

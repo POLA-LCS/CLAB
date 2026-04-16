@@ -17,38 +17,38 @@ int main(int argc, char* argv[]) {
         .flag("h").flag("help", "--")
         .abort()
         .action([](const String&) {
-            std::cout << "Usage: basic [options] <input>\n"
-                      << "  -o, --output <file>  Output file (default: a.out)\n"
-                      << "  -v, --verbose        Enable verbose output\n"
-                      << "  -h, --help           Show this help\n";
-        })
-    .end();
+        std::cout << "Usage: basic [options] <input>\n"
+            << "  -o, --output <file>  Output file (default: a.out)\n"
+            << "  -v, --verbose        Enable verbose output\n"
+            << "  -h, --help           Show this help\n";
+    })
+        .end();
 
     cli.start("output")
         .flag("o").flag("output", "--")
         .consume(1)
         .initial("a.out")
-    .end();
+        .end();
 
     cli.start("verbose")
         .flag("v").flag("verbose", "--")
-    .end();
+        .end();
 
     cli.start("input")
         .consume(1).required()
-    .end();
+        .end();
 
     try {
         Evaluation eval = cli.evaluate(argc - 1, argv + 1);
 
-        if (eval.aborted())
+        if(eval.aborted())
             return 0;
 
-        std::cout << "Input:   " << eval.value("input")  << "\n"
-                  << "Output:  " << eval.value("output") << "\n"
-                  << "Verbose: " << (eval.state("verbose") ? "yes" : "no") << "\n";
+        std::cout << "Input:   " << eval.value("input") << "\n"
+            << "Output:  " << eval.value("output") << "\n"
+            << "Verbose: " << (eval.state("verbose") ? "yes" : "no") << "\n";
 
-    } catch (const Exception& e) {
+    } catch(const Exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
