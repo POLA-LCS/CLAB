@@ -85,7 +85,7 @@ namespace clab {
             static const String empty;
 
             auto it = _flags_info.find(id);
-            if(it->second.list.empty() || it == _flags_info.end())
+            if(it == _flags_info.end() || it->second.list.empty())
                 return empty;
 
             return it->second.list.back();

@@ -40,10 +40,10 @@ namespace clab {
             String id{};
             Action action{};
             size_t consumed_args = 0;
-            bool is_required    = false; // from tigger
-            bool is_multiple    = false; // from tigger
-            bool is_abort       = false; // from tigger
-            bool is_over        = false; // from tigger
+            bool is_required = false; // from tigger
+            bool is_multiple = false; // from tigger
+            bool is_abort = false; // from tigger
+            bool is_over = false; // from tigger
             bool default_toggle = false; // defaults
         };
 
@@ -52,6 +52,7 @@ namespace clab {
 
         struct MatchCandidate {
             Shared<FlagConfig> flag;
+            /** @brief Initializes evaluation state with default values and parameters. */
             String full_tag;
             bool toggle;
         };
@@ -59,11 +60,14 @@ namespace clab {
         inline void initialize_defaults(Evaluation& out_eval) const {
             for(const Shared<FlagConfig>& flag : flags_vector) {
                 out_eval.set_state(flag->id, flag->default_toggle);
-                for(const String& val : flag->default_params)
+                for(const String& val : flag->default_params) {
                     out_eval.add_param(flag->id, val);
+                    std::printf("[DEBUG] %s\n", val.c_str());
+                }
             }
         }
 
+        /** @brief Scans arguments for any flag marked as 'abort' to stop parsing early. */
         inline bool check_for_abort(const Vector<String>& args, Evaluation& out_eval) const {
             for(const String& arg : args) {
                 bool dummy = false;
@@ -83,6 +87,7 @@ namespace clab {
             return false;
         }
 
+        /** @brief Validates a parameter against allowed values and stores it in evaluation. */
         inline void validate_and_store(Shared<FlagConfig> flag, const String& val, Evaluation& eval) const {
             if(!flag->allowed_params.empty() && flag->allowed_params.find(val) == flag->allowed_params.end())
                 throw InvalidValue(val);
@@ -92,6 +97,7 @@ namespace clab {
                 flag->action(val);
         }
 
+        /** @brief Processes a token identified as a tagged flag and consumes its arguments. */
         inline void handle_tagged_token(Shared<FlagConfig> flag, bool toggle, const Vector<String>& args,
             size_t& idx, Evaluation& eval, std::unordered_set<String>& ids) const {
             bool already_seen = ids.find(flag->id) != ids.end();
@@ -118,6 +124,7 @@ namespace clab {
             }
         }
 
+        /** @brief Processes a token as a positional argument based on available configurations. */
         inline bool handle_positional_token(const Vector<String>& args, size_t& idx,
             Evaluation& eval, std::unordered_set<String>& ids) const {
             for(const Shared<FlagConfig>& flag : flags_vector) {
@@ -153,13 +160,17 @@ namespace clab {
             return false;
         }
 
+        /** @brief Ensures all flags marked as required have been provided by the user. */
         inline void verify_required_flags(const std::unordered_set<String>& provided_ids) const {
             for(const Shared<FlagConfig>& flag : flags_vector) {
-                if(flag->is_required && provided_ids.find(flag->id) == provided_ids.end())
+                bool provided = provided_ids.find(flag->id) != provided_ids.end();
+                bool has_default = !flag->default_params.empty();
+                if(flag->is_required && !provided && !has_default)
                     throw MissingArgument(flag->id);
             }
         }
 
+        /** @brief Searches for a flag configuration matching the given raw argument string. */
         inline Shared<FlagConfig> find_match(const String& arg, bool& out_toggle) const {
             for(const Shared<FlagConfig>& flag : flags_vector) {
                 for(const std::pair<const String, TagInfo>& tag_info : flag->tags) {
@@ -174,9 +185,8 @@ namespace clab {
 
     public:
         CLAB() = default;
-        /*
-        ** @brief Loads `start(path_id).required().consume(1)`
-        */
+
+        /** @brief Loads `start(path_id).required().consume(1)` */
         CLAB(const std::string& path_id) {
             this->start(path_id).required().consume(1).end();
         }
@@ -186,42 +196,58 @@ namespace clab {
             Shared<FlagConfig> data;
             CLAB& parent;
 
-            inline FlagConfigurator& action(FlagConfig::Action fn) noexcept {
-                data->action = std::move(fn);
+            /** @brief Attaches a callback function to be executed when the flag is parsed. */
+            template<typename Fn, typename... BindArgs>
+            inline FlagConfigurator& action(Fn&& fn, BindArgs&&... bindargs) noexcept {
+                data->action = [
+                    fn = std::forward<Fn>(fn),
+                    ...args = std::forward<BindArgs>(bindargs)
+                ](const String& val) mutable {
+                    fn(val, args...);
+                };
                 return *this;
             }
 
+            /** @brief Defines a tag (e.g., "v") and its prefix (e.g., "-") for this flag. */
             inline FlagConfigurator& flag(String tag, String pref = "-") {
                 data->tags[tag] = { pref, true };
                 return *this;
             }
 
+            /** @brief Defines a tag that sets a specific boolean toggle value. */
             inline FlagConfigurator& toggle(bool val, String tag, String pref = "-") {
                 data->tags[tag] = { pref, val };
                 return *this;
             }
 
-            inline FlagConfigurator& initial(bool val) noexcept {
-                data->default_toggle = val;
+            /** @brief Only accepts two types [bool, string] at runtime */
+            template<typename T>
+            inline FlagConfigurator& initial(T&& val) {
+                if constexpr(std::is_same_v<std::decay_t<T>, bool>) {
+                    data->default_toggle = val;
+                } else if constexpr(std::is_convertible_v<T, String>) {
+                    data->default_params.clear();
+                    data->default_params.push_back(String(std::forward<T>(val)));
+                } else {
+                    static_assert(std::is_same_v<T, bool> || std::is_convertible_v<T, String>,
+                        "initial() only accepts bool or String types");
+                }
                 return *this;
             }
 
-            inline FlagConfigurator& initial(String val) {
-                data->default_params.clear();
-                data->default_params.push_back(std::move(val));
-                return *this;
-            }
-
+            /** @brief Sets multiple default string values for the flag. */
             inline FlagConfigurator& initial(std::initializer_list<String> vals) {
                 data->default_params = vals;
                 return *this;
             }
 
+            /** @brief Specifies how many subsequent arguments this flag should consume. */
             inline FlagConfigurator& consume(size_t n) noexcept {
                 data->consumed_args = n;
                 return *this;
             }
 
+            /** @brief Specifies consumption count and a whitelist of allowed values. */
             inline FlagConfigurator& consume(size_t n, std::initializer_list<String> allowed) {
                 data->consumed_args = n;
                 for(const String& s : allowed)
@@ -229,27 +255,32 @@ namespace clab {
                 return *this;
             }
 
+            /** @brief Marks this flag as mandatory. */
             inline FlagConfigurator& required() noexcept {
                 data->is_required = true;
                 return *this;
             }
 
+            /** @brief Allows the flag to appear multiple times in the command line. */
             inline FlagConfigurator& multiple() noexcept {
                 data->is_multiple = true;
                 return *this;
             }
 
+            /** @brief If found, stops parsing immediately (useful for --help or --version). */
             inline FlagConfigurator& abort() noexcept {
                 data->is_abort = true;
                 return *this;
             }
 
+            /** @brief Consumes all remaining arguments as parameters for this flag. */
             inline FlagConfigurator& over() noexcept {
                 data->is_over = true;
                 data->is_multiple = true;
                 return *this;
             }
 
+            /** @brief Finalizes the current flag configuration and returns to the CLAB builder. */
             inline CLAB& end() {
                 if(data->tags.empty() && data->is_multiple && data->consumed_args > 0)
                     throw InvalidBuilding("Positional argument '" + data->id + "' cannot have both .consume() and .multiple().");
@@ -257,6 +288,7 @@ namespace clab {
             }
         };
 
+        /** @brief Starts the definition of a new flag or positional argument. */
         inline FlagConfigurator start(String id = "") {
             Shared<FlagConfig> flag = std::make_shared<FlagConfig>();
             flag->id = id;
@@ -264,6 +296,7 @@ namespace clab {
             return { flag, *this };
         }
 
+        /** @brief Parses command line arguments from standard argc/argv. */
         inline Evaluation evaluate(int argc, char* argv[]) const {
             Vector<String> args;
             for(int i = 0; i < argc; ++i)
@@ -271,6 +304,7 @@ namespace clab {
             return evaluate(args);
         }
 
+        /** @brief Core parsing logic that processes a vector of string arguments. */
         inline Evaluation evaluate(const Vector<String>& args) const {
             Evaluation eval;
             std::unordered_set<String> user_provided_ids;
