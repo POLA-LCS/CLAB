@@ -31,6 +31,12 @@ namespace clab {
             bool toggle_val;
         };
 
+        /** @brief Struct for minimal info & default prefix */
+        struct FlagEssential {
+            String tag{};
+            String prefix{ "-" };
+        };
+
         struct FlagConfig {
             using Action = std::function<void(const String&)>;
 
@@ -208,27 +214,30 @@ namespace clab {
             }
 
             /** @brief Defines a tag (e.g., "v") and its prefix (e.g., "-") for this flag. */
-            inline FlagConfigurator& flag(String tag, String pref = "-") {
-                data->tags[tag] = { pref, true };
+            inline FlagConfigurator& flag(String tag, String pref = "-", bool toggle = true) {
+                data->tags[tag] = { pref, toggle };
+                data->default_toggle = !toggle;
                 return *this;
             }
 
-            /** @brief Defines a tag that sets a specific boolean toggle value. */
-            inline FlagConfigurator& toggle(bool val, String tag, String pref = "-") {
-                data->tags[tag] = { pref, val };
+            /** @brief Defines multiple tags (e.g., "v", "h") and its prefix (e.g., "-") for this flag. */
+            inline FlagConfigurator& flag(const Vector<FlagEssential>& tags, bool toggle = true) {
+                for(const auto& [tag_name, pref] : tags) {
+                    this->flag(tag_name, pref, toggle);
+                }
                 return *this;
             }
 
             /** @brief Only accepts two types [bool, string] at runtime */
-            template<typename T>
-            inline FlagConfigurator& initial(T&& val) {
-                if constexpr(std::is_same_v<std::decay_t<T>, bool>) {
+            template<typename StringOrBool>
+            inline FlagConfigurator& initial(StringOrBool&& val) {
+                if constexpr(std::is_same_v<std::decay_t<StringOrBool>, bool>) {
                     data->default_toggle = val;
-                } else if constexpr(std::is_convertible_v<T, String>) {
+                } else if constexpr(std::is_convertible_v<StringOrBool, String>) {
                     data->default_params.clear();
-                    data->default_params.push_back(String(std::forward<T>(val)));
+                    data->default_params.push_back(String(std::forward<StringOrBool>(val)));
                 } else {
-                    static_assert(std::is_same_v<T, bool> || std::is_convertible_v<T, String>,
+                    static_assert(std::is_same_v<StringOrBool, bool> || std::is_convertible_v<StringOrBool, String>,
                         "initial() only accepts bool or String types");
                 }
                 return *this;
