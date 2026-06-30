@@ -1,342 +1,353 @@
-/*---------------------------------------------------------------*\
-| CLAB - Command Line Arguments Builder                           |
-|                                                                 |
-| File: clab.hpp                                                  |
-| Description:                                                    |
-|     Main engine header file. Implements the fluent builder      |
-|     interface and the core parsing logic for CLI arguments.     |
-|                                                                 |
-| Minimum Standard: ISO C++17                                     |
-| License: MIT (c) 2025                                           |
-\*---------------------------------------------------------------*/
+#include "decl/clab_decl.hpp"
+#include "impl/exceptions.hpp"
+#include "impl/evaluation.hpp"
 
-#pragma once
-
-#include <functional>
-#include <unordered_set>
-#include <unordered_map>
 #include <algorithm>
-#include <initializer_list>
-#include <memory>
-#include "details/types.hpp"
-#include "details/exceptions.hpp"
-#include "details/evaluation.hpp"
+#include <cctype>
+#include <sstream>
 
 namespace clab {
 
-    class CLAB {
-    public:
-        struct TagInfo {
-            String prefix;
-            bool toggle_val;
-        };
+    // FlagConfigurator
 
-        /** @brief Struct for minimal info & default prefix */
-        struct FlagEssential {
-            String tag{};
-            String prefix{ "-" };
-        };
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::flag(std::string tag, std::string pref, bool toggle) {
+        data->tags[tag] = { std::move(pref), toggle };
+        data->default_toggle = !toggle;
+        return *this;
+    }
 
-        struct FlagConfig {
-            using Action = std::function<void(const String&)>;
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::flag(const std::vector<FlagEssential>& tags, bool toggle) {
+        for (const auto& ft : tags) {
+            if (!ft.tag.empty())
+                data->tags[ft.tag] = { ft.prefix.empty() ? "-" : ft.prefix, toggle };
+        }
+        return *this;
+    }
 
-            std::unordered_map<String, TagInfo> tags{};
-            std::unordered_set<String> allowed_params{};
-            Vector<String> default_params{}; // defaults
-            String id{};
-            Action action{};
-            size_t consumed_args = 0;
-            bool is_required = false; // from tigger
-            bool is_multiple = false; // from tigger
-            bool is_abort = false; // from tigger
-            bool is_over = false; // from tigger
-            bool default_toggle = false; // defaults
-        };
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::initial(std::initializer_list<std::string> vals) {
+        data->default_params = vals;
+        return *this;
+    }
 
-    private:
-        Vector<Shared<FlagConfig>> flags_vector;
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::initial(int val) {
+        data->arg_type = ArgType::Int;
+        data->default_params.clear();
+        data->default_params.push_back(std::to_string(val));
+        return *this;
+    }
 
-        struct MatchCandidate {
-            Shared<FlagConfig> flag;
-            /** @brief Initializes evaluation state with default values and parameters. */
-            String full_tag;
-            bool toggle;
-        };
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::initial(double val) {
+        data->arg_type = ArgType::Double;
+        data->default_params.clear();
+        data->default_params.push_back(std::to_string(val));
+        return *this;
+    }
 
-        inline void initialize_defaults(Evaluation& out_eval) const {
-            for(const Shared<FlagConfig>& flag : flags_vector) {
-                out_eval.set_state(flag->id, flag->default_toggle);
-                for(const String& val : flag->default_params) {
-                    out_eval.add_param(flag->id, val);
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::Int() noexcept {
+        data->arg_type = ArgType::Int;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::Float() noexcept {
+        data->arg_type = ArgType::Double;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::consume(size_t n) {
+        data->consumed_args = n;
+        data->allowed_params.clear();
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::consume(size_t n, std::initializer_list<std::string> allowed) {
+        data->consumed_args = n;
+        data->allowed_params = allowed;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::required() noexcept {
+        data->is_required = true;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::multiple() noexcept {
+        data->is_multiple = true;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::abort() noexcept {
+        data->is_abort = true;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::over() noexcept {
+        data->is_over = true;
+        data->is_multiple = true;
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::auto_help(std::string name, std::vector<HelpEntry> entries) noexcept {
+        data->is_abort = true;
+        data->help_entries = std::move(entries);
+        data->help_action = [name = std::move(name)](const std::string& /*id*/, const std::vector<HelpEntry>& entries) {
+            // Find widest short_flag for column alignment
+            std::size_t flag_w = 0;
+            for (const auto& e : entries)
+                if (e.short_flag.size() > flag_w) flag_w = e.short_flag.size();
+            std::size_t flag_col = flag_w + 6;
+
+            std::cout << "Usage: " << name << " [options]\n";
+            for (const auto& entry : entries) {
+                std::cout << "  " << entry.short_flag;
+                for (std::size_t i = entry.short_flag.size(); i < flag_col; ++i)
+                    std::cout << ' ';
+                std::cout << entry.description;
+                if (!entry.default_val.empty())
+                    std::cout << "  (default: " << entry.default_val << ")";
+                if (!entry.allowed_vals.empty()) {
+                    if (entry.default_val.empty()) std::cout << "  (";
+                    else std::cout << " (";
+                    for (std::size_t i = 0; i < entry.allowed_vals.size(); ++i) {
+                        if (i) std::cout << ", ";
+                        std::cout << entry.allowed_vals[i];
+                    }
+                    std::cout << ")";
                 }
+                std::cout << "\n";
+            }
+        };
+        return *this;
+    }
+
+    inline CLAB::FlagConfigurator& CLAB::FlagConfigurator::auto_version(std::string name, std::string version,
+        std::string extra) noexcept {
+        data->is_version = true;
+        data->version_info = { std::move(name), std::move(version), std::move(extra) };
+        return *this;
+    }
+
+    inline CLAB& CLAB::FlagConfigurator::end() {
+        if (data->tags.empty() && data->is_multiple && data->consumed_args > 0)
+            throw InvalidBuilding("Positional argument '" + data->id + "' cannot have both .consume() and .multiple().");
+        return parent;
+    }
+
+    // CLAB
+
+    inline CLAB::CLAB(const std::string& path_id) {
+        start(path_id).required().consume(1u).end();
+    }
+
+    inline CLAB::FlagConfigurator CLAB::start(std::string id) {
+        auto cfg = std::make_shared<FlagConfig>();
+        cfg->id = std::move(id);
+        flags_vector.push_back(cfg);
+        return { cfg, *this };
+    }
+
+    inline Evaluation CLAB::evaluate(int argc, char* argv[]) const {
+        std::vector<std::string> args(static_cast<std::size_t>(argc));
+        for (int i = 0; i < argc; ++i)
+            args[static_cast<std::size_t>(i)] = argv[i];
+        return evaluate(args);
+    }
+
+    inline Evaluation CLAB::evaluate(const std::vector<std::string>& args) const {
+        Evaluation out_eval;
+        std::unordered_set<std::string> provided_ids;
+
+        initialize_defaults(out_eval);
+
+        if (check_for_abort(args, out_eval))
+            return out_eval;
+
+        std::size_t idx = 0;
+        while (idx < args.size()) {
+            const std::string& arg = args[idx];
+
+            bool toggle{};
+            auto flag = find_match(arg, toggle);
+
+            if (flag) {
+                handle_tagged_token(flag, toggle, args, idx, out_eval, provided_ids);
+            } else {
+                if (!handle_positional_token(args, idx, out_eval, provided_ids))
+                    throw UnexpectedArgument("unexpected argument: " + arg);
             }
         }
 
-        /** @brief Scans arguments for any flag marked as 'abort' to stop parsing early. */
-        inline bool check_for_abort(const Vector<String>& args, Evaluation& out_eval) const {
-            for(const String& arg : args) {
-                bool dummy = false;
-                Shared<FlagConfig> flag = find_match(arg, dummy);
+        verify_required_flags(provided_ids);
+        return out_eval;
+    }
 
-                if(!flag || !flag->is_abort)
-                    continue;
+    inline void CLAB::validate_type(ArgType type, const std::string& val, const std::string& id) const {
+        if (type == ArgType::String) return;
+        std::size_t pos{};
+        try {
+            if (type == ArgType::Int) {
+                std::stoi(val, &pos);
+                if (pos != val.size())
+                    throw TypeConversion("'" + id + "' expects an int, got \"" + val + "\"");
+            } else {
+                std::stod(val, &pos);
+                if (pos != val.size())
+                    throw TypeConversion("'" + id + "' expects a float, got \"" + val + "\"");
+            }
+        } catch (const TypeConversion&) {
+            throw;
+        } catch (...) {
+            throw TypeConversion("'" + id + "' expects a " +
+                (type == ArgType::Int ? "int" : "float") + ", got \"" + val + "\"");
+        }
+    }
 
+    inline void CLAB::initialize_defaults(Evaluation& out_eval) const {
+        for (const auto& flag : flags_vector) {
+            if (!flag) continue;
+            out_eval.set_state(flag->id, flag->default_toggle);
+            for (const auto& param : flag->default_params)
+                out_eval.add_param(flag->id, param);
+        }
+    }
+
+    inline bool CLAB::check_for_abort(const std::vector<std::string>& args, Evaluation& out_eval) const {
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            bool toggle{};
+            auto flag = find_match(args[i], toggle);
+            if (flag && flag->is_abort) {
                 out_eval.set_aborted_by(flag->id);
-                out_eval.set_state(flag->id, dummy);
-
-                if(flag->action)
+                out_eval.set_state(flag->id, toggle);
+                if (flag->help_action)
+                    flag->help_action("", flag->help_entries);
+                if (flag->action)
                     flag->action("");
-
                 return true;
             }
-            return false;
+        }
+        return false;
+    }
+
+    inline void CLAB::validate_and_store(std::shared_ptr<FlagConfig> flag, const std::string& val,
+        Evaluation& eval) const {
+        if (!flag->allowed_params.empty() &&
+            flag->allowed_params.find(val) == flag->allowed_params.end())
+            throw InvalidValue("invalid value for '" + flag->id + "': \"" + val + "\"");
+        validate_type(flag->arg_type, val, flag->id);
+        eval.add_param(flag->id, val);
+        if (flag->action)
+            flag->action(val);
+    }
+
+    inline void CLAB::handle_tagged_token(std::shared_ptr<FlagConfig> flag, bool toggle,
+        const std::vector<std::string>& args,
+        size_t& idx, Evaluation& eval,
+        std::unordered_set<std::string>& ids) const {
+        bool already_seen = ids.find(flag->id) != ids.end();
+        if (already_seen && !flag->is_multiple)
+            throw RedundantArgument("redundant argument: " + flag->id);
+
+        if (!already_seen && flag->consumed_args > 0 && !flag->is_over)
+            eval.clear_params(flag->id);
+
+        ids.insert(flag->id);
+        eval.set_state(flag->id, toggle);
+
+        ++idx;
+
+        if (flag->consumed_args == 0) {
+            if (flag->is_version) {
+                const auto& v = flag->version_info;
+                std::cout << v.name << " " << v.version;
+                if (!v.extra.empty())
+                    std::cout << " (" << v.extra << ")";
+                std::cout << "\n";
+            } else if (flag->help_action) {
+                flag->help_action(flag->id, flag->help_entries);
+            }
+            return;
         }
 
-        /** @brief Validates a parameter against allowed values and stores it in evaluation. */
-        inline void validate_and_store(Shared<FlagConfig> flag, const String& val, Evaluation& eval) const {
-            if(!flag->allowed_params.empty() && flag->allowed_params.find(val) == flag->allowed_params.end())
-                throw InvalidValue(val);
+        for (std::size_t i = 0; i < flag->consumed_args; ++i) {
+            if (idx >= args.size())
+                throw MissingValue("missing value for '" + flag->id + "'");
 
-            eval.add_param(flag->id, val);
-            if(flag->action)
-                flag->action(val);
+            const std::string& val = args[idx++];
+            bool d = false;
+            if (find_match(val, d))
+                throw TokenMismatch("unexpected flag-like value: " + val);
+
+            validate_and_store(flag, val, eval);
         }
+    }
 
-        /** @brief Processes a token identified as a tagged flag and consumes its arguments. */
-        inline void handle_tagged_token(Shared<FlagConfig> flag, bool toggle, const Vector<String>& args,
-            size_t& idx, Evaluation& eval, std::unordered_set<String>& ids) const {
-            bool already_seen = ids.find(flag->id) != ids.end();
-            if(already_seen && !flag->is_multiple)
-                throw RedundantArgument(flag->id);
+    inline bool CLAB::handle_positional_token(const std::vector<std::string>& args, size_t& idx,
+        Evaluation& eval,
+        std::unordered_set<std::string>& ids) const {
+        for (const auto& flag : flags_vector) {
+            if (!flag || !flag->tags.empty()) continue;
 
-            if(!already_seen && flag->consumed_args > 0 && !flag->is_over)
+            bool is_first = ids.find(flag->id) == ids.end();
+            if (!is_first && !flag->is_multiple) continue;
+
+            if (is_first && (flag->is_multiple || flag->consumed_args > 0) && !flag->is_over)
                 eval.clear_params(flag->id);
 
             ids.insert(flag->id);
-            eval.set_state(flag->id, toggle);
-            idx++;
+            eval.set_state(flag->id, true);
 
-            for(size_t i = 0; i < flag->consumed_args; ++i) {
-                if(idx >= args.size())
-                    throw MissingValue(flag->id);
-
-                String val = args[idx++];
-                bool d = false;
-                if(find_match(val, d))
-                    throw TokenMismatch(val);
-
-                validate_and_store(flag, val, eval);
-            }
-        }
-
-        /** @brief Processes a token as a positional argument based on available configurations. */
-        inline bool handle_positional_token(const Vector<String>& args, size_t& idx,
-            Evaluation& eval, std::unordered_set<String>& ids) const {
-            for(const Shared<FlagConfig>& flag : flags_vector) {
-                if(!flag->tags.empty())
-                    continue;
-
-                bool is_first = ids.find(flag->id) == ids.end();
-                if(!is_first && !flag->is_multiple)
-                    continue;
-
-                if(is_first && (flag->is_multiple || flag->consumed_args > 0) && !flag->is_over)
-                    eval.clear_params(flag->id);
-
-                ids.insert(flag->id);
-                eval.set_state(flag->id, true);
-
-                if(flag->is_multiple) {
-                    while(idx < args.size()) {
-                        bool d = false;
-                        if(find_match(args[idx], d))
-                            break;
-                        validate_and_store(flag, args[idx++], eval);
-                    }
-                } else {
-                    for(size_t i = 0; i < flag->consumed_args; ++i) {
-                        if(idx >= args.size())
-                            throw MissingValue(flag->id);
-                        validate_and_store(flag, args[idx++], eval);
-                    }
+            if (flag->is_multiple) {
+                while (idx < args.size()) {
+                    bool d = false;
+                    if (find_match(args[idx], d))
+                        break;
+                    validate_and_store(flag, args[idx], eval);
+                    ++idx;
                 }
-                return true;
+            } else {
+                for (std::size_t i = 0; i < flag->consumed_args; ++i) {
+                    if (idx >= args.size())
+                        throw MissingValue("missing value for '" + flag->id + "'");
+                    validate_and_store(flag, args[idx], eval);
+                    ++idx;
+                }
             }
-            return false;
+            return true;
         }
+        return false;
+    }
 
-        /** @brief Ensures all flags marked as required have been provided by the user. */
-        inline void verify_required_flags(const std::unordered_set<String>& provided_ids) const {
-            for(const Shared<FlagConfig>& flag : flags_vector) {
-                bool provided = provided_ids.find(flag->id) != provided_ids.end();
-                bool has_default = !flag->default_params.empty();
-                if(flag->is_required && !provided && !has_default)
-                    throw MissingArgument(flag->id);
-            }
+    inline void CLAB::verify_required_flags(const std::unordered_set<std::string>& provided_ids) const {
+        for (const auto& flag : flags_vector) {
+            if (!flag) continue;
+            bool provided = provided_ids.find(flag->id) != provided_ids.end();
+            bool has_default = !flag->default_params.empty();
+            if (flag->is_required && !provided && !has_default)
+                throw MissingArgument("required argument missing: " + flag->id);
         }
+    }
 
-        /** @brief Searches for a flag configuration matching the given raw argument string. */
-        inline Shared<FlagConfig> find_match(const String& arg, bool& out_toggle) const {
-            for(const Shared<FlagConfig>& flag : flags_vector) {
-                for(const std::pair<const String, TagInfo>& tag_info : flag->tags) {
-                    if(arg == (tag_info.second.prefix + tag_info.first)) {
-                        out_toggle = tag_info.second.toggle_val;
+    inline std::shared_ptr<CLAB::FlagConfig> CLAB::find_match(const std::string& arg, bool& out_toggle) const {
+        for (const auto& flag : flags_vector) {
+            if (!flag) continue;
+            for (const auto& [tag, info] : flag->tags) {
+                if (arg.rfind(info.prefix + tag, 0) == 0) {
+                    std::string rest = arg.substr(info.prefix.size() + tag.size());
+                    if (rest.empty()) {
+                        out_toggle = info.toggle_val;
+                        return flag;
+                    }
+                    if (rest == "+" || rest == "true" || rest == "on") {
+                        out_toggle = true;
+                        return flag;
+                    }
+                    if (rest == "-" || rest == "false" || rest == "off") {
+                        out_toggle = false;
                         return flag;
                     }
                 }
             }
-            return nullptr;
         }
-
-    public:
-        CLAB() = default;
-
-        /** @brief Loads `start(path_id).required().consume(1)` */
-        CLAB(const std::string& path_id) {
-            this->start(path_id).required().consume(1).end();
-        }
-        ~CLAB() = default;
-
-        struct FlagConfigurator {
-            Shared<FlagConfig> data;
-            CLAB& parent;
-
-            /** @brief Attaches a callback function to be executed when the flag is parsed. */
-            template<typename Fn, typename... BindArgs>
-            inline FlagConfigurator& action(Fn&& fn, BindArgs&&... bindargs) noexcept {
-                data->action = [
-                    fn = std::forward<Fn>(fn),
-                    ...args = std::forward<BindArgs>(bindargs)
-                ](const String& val) mutable {
-                    fn(val, args...);
-                };
-                return *this;
-            }
-
-            /** @brief Defines a tag (e.g., "v") and its prefix (e.g., "-") for this flag. */
-            inline FlagConfigurator& flag(String tag, String pref = "-", bool toggle = true) {
-                data->tags[tag] = { pref, toggle };
-                data->default_toggle = !toggle;
-                return *this;
-            }
-
-            /** @brief Defines multiple tags (e.g., "v", "h") and its prefix (e.g., "-") for this flag. */
-            inline FlagConfigurator& flag(const Vector<FlagEssential>& tags, bool toggle = true) {
-                for(const auto& [tag_name, pref] : tags) {
-                    this->flag(tag_name, pref, toggle);
-                }
-                return *this;
-            }
-
-            /** @brief Only accepts two types [bool, string] at runtime */
-            template<typename StringOrBool>
-            inline FlagConfigurator& initial(StringOrBool&& val) {
-                if constexpr(std::is_same_v<std::decay_t<StringOrBool>, bool>) {
-                    data->default_toggle = val;
-                } else if constexpr(std::is_convertible_v<StringOrBool, String>) {
-                    data->default_params.clear();
-                    data->default_params.push_back(String(std::forward<StringOrBool>(val)));
-                } else {
-                    static_assert(std::is_same_v<StringOrBool, bool> || std::is_convertible_v<StringOrBool, String>,
-                        "initial() only accepts bool or String types");
-                }
-                return *this;
-            }
-
-            /** @brief Sets multiple default string values for the flag. */
-            inline FlagConfigurator& initial(std::initializer_list<String> vals) {
-                data->default_params = vals;
-                return *this;
-            }
-
-            /** @brief Specifies how many subsequent arguments this flag should consume. */
-            inline FlagConfigurator& consume(size_t n) noexcept {
-                data->consumed_args = n;
-                return *this;
-            }
-
-            /** @brief Specifies consumption count and a whitelist of allowed values. */
-            inline FlagConfigurator& consume(size_t n, std::initializer_list<String> allowed) {
-                data->consumed_args = n;
-                for(const String& s : allowed)
-                    data->allowed_params.insert(s);
-                return *this;
-            }
-
-            /** @brief Marks this flag as mandatory. */
-            inline FlagConfigurator& required() noexcept {
-                data->is_required = true;
-                return *this;
-            }
-
-            /** @brief Allows the flag to appear multiple times in the command line. */
-            inline FlagConfigurator& multiple() noexcept {
-                data->is_multiple = true;
-                return *this;
-            }
-
-            /** @brief If found, stops parsing immediately (useful for --help or --version). */
-            inline FlagConfigurator& abort() noexcept {
-                data->is_abort = true;
-                return *this;
-            }
-
-            /** @brief Consumes all remaining arguments as parameters for this flag. */
-            inline FlagConfigurator& over() noexcept {
-                data->is_over = true;
-                data->is_multiple = true;
-                return *this;
-            }
-
-            /** @brief Finalizes the current flag configuration and returns to the CLAB builder. */
-            inline CLAB& end() {
-                if(data->tags.empty() && data->is_multiple && data->consumed_args > 0)
-                    throw InvalidBuilding("Positional argument '" + data->id + "' cannot have both .consume() and .multiple().");
-                return parent;
-            }
-        };
-
-        /** @brief Starts the definition of a new flag or positional argument. */
-        inline FlagConfigurator start(String id = "") {
-            Shared<FlagConfig> flag = std::make_shared<FlagConfig>();
-            flag->id = id;
-            flags_vector.push_back(flag);
-            return { flag, *this };
-        }
-
-        /** @brief Parses command line arguments from standard argc/argv. */
-        inline Evaluation evaluate(int argc, char* argv[]) const {
-            Vector<String> args;
-            for(int i = 0; i < argc; ++i)
-                args.push_back(String(argv[i]));
-            return evaluate(args);
-        }
-
-        /** @brief Core parsing logic that processes a vector of string arguments. */
-        inline Evaluation evaluate(const Vector<String>& args) const {
-            Evaluation eval;
-            std::unordered_set<String> user_provided_ids;
-            size_t arg_idx = 0;
-
-            initialize_defaults(eval);
-
-            if(check_for_abort(args, eval))
-                return eval;
-
-            while(arg_idx < args.size()) {
-                bool toggle_val = true;
-                Shared<FlagConfig> matched_flag = find_match(args[arg_idx], toggle_val);
-
-                if(matched_flag) {
-                    handle_tagged_token(matched_flag, toggle_val, args, arg_idx, eval, user_provided_ids);
-                } else if(!handle_positional_token(args, arg_idx, eval, user_provided_ids)) {
-                    throw UnexpectedArgument(args[arg_idx]);
-                }
-            }
-
-            verify_required_flags(user_provided_ids);
-            return eval;
-        }
-    };
+        return nullptr;
+    }
 
 } // namespace clab
